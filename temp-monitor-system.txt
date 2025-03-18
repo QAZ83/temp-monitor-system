@@ -1,0 +1,752 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+"""
+AI-Powered Temperature Monitoring System
+=======================================
+Version: 2.0
+Last Updated: 2025-03-16
+
+Description:
+-----------
+An integrated system for recording, analyzing, and monitoring temperature readings
+with prediction capabilities using AI algorithms and machine learning models.
+
+Requirements:
+------------
+- Python 3.8+
+- numpy
+- pandas
+- matplotlib
+- scikit-learn
+- joblib
+"""
+
+import tkinter as tk
+from tkinter import ttk, messagebox, filedialog
+import numpy as np
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+import pandas as pd
+from datetime import datetime, timedelta
+import joblib
+from sklearn.linear_model import LinearRegression
+from sklearn.preprocessing import PolynomialFeatures
+from sklearn.metrics import mean_squared_error, r2_score
+import os
+import json
+import matplotlib
+matplotlib.rcParams['font.family'] = 'Arial'  # For better Arabic text rendering
+
+class TempMonitorSystem:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("AI-Powered Temperature Monitoring System")
+        self.root.geometry("1000x700")
+        self.root.configure(bg="#f0f0f0")
+        
+        # Advanced configuration properties
+        self.app_config = {
+            "data_dir": "./temp_data",
+            "model_file": "temp_model.pkl",
+            "history_file": "temp_history.csv",
+            "config_file": "app_config.json",
+            "auto_predict": True,
+            "prediction_days": 7,
+            "polynomial_degree": 2,
+            "theme": "light"
+        }
+        
+        # Initialize data structure
+        self.temp_data = {'Date': [], 'Time': [], 'Temperature': [], 'Rating': [], 'Notes': []}
+        self.df = pd.DataFrame(self.temp_data)
+        
+        # Initialize multiple prediction models
+        self.models = {
+            "linear": LinearRegression(),
+            "poly2": LinearRegression(),
+            "poly3": LinearRegression()
+        }
+        
+        self.poly_features = {
+            "poly2": PolynomialFeatures(degree=2),
+            "poly3": PolynomialFeatures(degree=3)
+        }
+        
+        self.active_model = "poly2"  # Default model
+        
+        # Create directory for saving data if it doesn't exist
+        if not os.path.exists(self.app_config["data_dir"]):
+            os.makedirs(self.app_config["data_dir"])
+        
+        # Load saved settings
+        self.load_config()
+            
+        # Check for previously trained models
+        self.load_data_and_models()
+        
+        # Create the main interface
+        self.create_widgets()
+        
+        # Update statistics and graphs
+        self.update_display()
+        
+    def load_config(self):
+        """Load application settings from the configuration file"""
+        config_path = os.path.join(self.app_config["data_dir"], self.app_config["config_file"])
+        if os.path.exists(config_path):
+            try:
+                with open(config_path, 'r') as file:
+                    loaded_config = json.load(file)
+                    # Merge loaded settings with default settings
+                    self.app_config.update(loaded_config)
+                print("Application settings loaded successfully")
+            except Exception as e:
+                print(f"Error loading application settings: {e}")
+    
+    def save_config(self):
+        """Save application settings to the configuration file"""
+        config_path = os.path.join(self.app_config["data_dir"], self.app_config["config_file"])
+        try:
+            with open(config_path, 'w') as file:
+                json.dump(self.app_config, file, indent=4)
+            print("Application settings saved successfully")
+        except Exception as e:
+            print(f"Error saving application settings: {e}")
+    
+    def load_data_and_models(self):
+        """Load data and trained models"""
+        history_path = os.path.join(self.app_config["data_dir"], self.app_config["history_file"])
+        
+        # Load reading data
+        if os.path.exists(history_path):
+            try:
+                self.df = pd.read_csv(history_path)
+                print(f"Loaded {len(self.df)} readings from previous data")
+            except Exception as e:
+                print(f"Error loading data: {e}")
+        
+        # Load prediction models
+        for model_name in self.models.keys():
+            model_path = os.path.join(self.app_config["data_dir"], f"{model_name}_model.pkl")
+            if os.path.exists(model_path):
+                try:
+                    self.models[model_name] = joblib.load(model_path)
+                    print(f"Model {model_name} loaded successfully")
+                except Exception as e:
+                    print(f"Error loading model {model_name}: {e}")
+    
+    def create_widgets(self):
+        """Create user interface elements"""
+        # Create menu bar
+        self.create_menu()
+        
+        # Title frame
+        title_frame = tk.Frame(self.root, bg="#3498db", height=50)
+        title_frame.pack(fill=tk.X)
+        
+        title_label = tk.Label(
+            title_frame, 
+            text="AI-Powered Temperature Monitoring System", 
+            font=("Arial", 18, "bold"),
+            bg="#3498db",
+            fg="white"
+        )
+        title_label.pack(pady=10)
+        
+        # Input and display frame
+        main_frame = tk.Frame(self.root, bg="#f0f0f0")
+        main_frame.pack(fill=tk.BOTH, expand=True, pady=10, padx=10)
+        
+        # Split interface into two halves
+        left_frame = tk.Frame(main_frame, bg="#f0f0f0")
+        left_frame.grid(row=0, column=0, sticky="nsew", padx=5, pady=5)
+        
+        right_frame = tk.Frame(main_frame, bg="#f0f0f0")
+        right_frame.grid(row=0, column=1, sticky="nsew", padx=5, pady=5)
+        
+        # Configure grid
+        main_frame.columnconfigure(0, weight=1)
+        main_frame.columnconfigure(1, weight=1)
+        main_frame.rowconfigure(0, weight=1)
+        
+        # ----- Left Section -----
+        # Data input frame
+        self.create_input_frame(left_frame)
+        
+        # Statistics frame
+        self.create_stats_frame(left_frame)
+        
+        # ----- Right Section -----
+        # Graph frame
+        self.create_graph_frame(right_frame)
+        
+        # Advanced predictions frame
+        self.create_predictions_frame(right_frame)
+        
+        # ----- Bottom Section -----
+        # Data list frame
+        bottom_frame = tk.Frame(self.root, bg="#f0f0f0")
+        bottom_frame.pack(fill=tk.X, padx=10, pady=5)
+        
+        self.create_data_table(bottom_frame)
+        
+        # Status bar
+        status_bar = tk.Frame(self.root, height=20, bg="#f0f0f0", relief=tk.SUNKEN, bd=1)
+        status_bar.pack(fill=tk.X, side=tk.BOTTOM, pady=2)
+        
+        self.status_var = tk.StringVar(value="Ready")
+        status_label = tk.Label(status_bar, textvariable=self.status_var, anchor="e", bg="#f0f0f0")
+        status_label.pack(side=tk.RIGHT, padx=10)
+        
+        self.records_var = tk.StringVar(value="No readings")
+        records_label = tk.Label(status_bar, textvariable=self.records_var, anchor="w", bg="#f0f0f0")
+        records_label.pack(side=tk.LEFT, padx=10)
+        
+    def create_menu(self):
+        """Create the menu bar"""
+        menubar = tk.Menu(self.root)
+        self.root.config(menu=menubar)
+        
+        # File menu
+        file_menu = tk.Menu(menubar, tearoff=0)
+        menubar.add_cascade(label="File", menu=file_menu)
+        file_menu.add_command(label="Export Data to CSV", command=self.export_data)
+        file_menu.add_command(label="Import Data from CSV", command=self.import_data)
+        file_menu.add_separator()
+        file_menu.add_command(label="Reset System", command=self.reset_system)
+        file_menu.add_separator()
+        file_menu.add_command(label="Exit", command=self.root.quit)
+        
+        # Analysis menu
+        analysis_menu = tk.Menu(menubar, tearoff=0)
+        menubar.add_cascade(label="Analysis", menu=analysis_menu)
+        analysis_menu.add_command(label="Update Data", command=self.update_display)
+        analysis_menu.add_command(label="Retrain Models", command=self.train_all_models)
+        
+        # Model menu
+        model_menu = tk.Menu(menubar, tearoff=0)
+        menubar.add_cascade(label="Prediction Model", menu=model_menu)
+        
+        self.model_var = tk.StringVar(value=self.active_model)
+        model_menu.add_radiobutton(label="Linear Model", value="linear", variable=self.model_var, command=self.change_model)
+        model_menu.add_radiobutton(label="Polynomial Model (Degree 2)", value="poly2", variable=self.model_var, command=self.change_model)
+        model_menu.add_radiobutton(label="Polynomial Model (Degree 3)", value="poly3", variable=self.model_var, command=self.change_model)
+        
+        # Help menu
+        help_menu = tk.Menu(menubar, tearoff=0)
+        menubar.add_cascade(label="Help", menu=help_menu)
+        help_menu.add_command(label="About", command=self.show_about)
+        help_menu.add_command(label="User Guide", command=self.show_help)
+    
+    def create_input_frame(self, parent):
+        """Create data input frame"""
+        input_frame = tk.LabelFrame(
+            parent, 
+            text="Data Input", 
+            font=("Arial", 12),
+            bg="#f0f0f0",
+            padx=10,
+            pady=10
+        )
+        input_frame.pack(fill=tk.X, padx=5, pady=5)
+        
+        # Date and time input
+        date_frame = tk.Frame(input_frame, bg="#f0f0f0")
+        date_frame.pack(fill=tk.X, pady=5)
+        
+        tk.Label(
+            date_frame, 
+            text="Date and Time:", 
+            font=("Arial", 10),
+            bg="#f0f0f0"
+        ).pack(side=tk.LEFT, padx=5)
+        
+        now = datetime.now()
+        self.date_var = tk.StringVar(value=now.strftime("%Y-%m-%d"))
+        date_entry = ttk.Entry(
+            date_frame,
+            textvariable=self.date_var,
+            width=12
+        )
+        date_entry.pack(side=tk.LEFT, padx=5)
+        
+        self.time_var = tk.StringVar(value=now.strftime("%H:%M"))
+        time_entry = ttk.Entry(
+            date_frame,
+            textvariable=self.time_var,
+            width=8
+        )
+        time_entry.pack(side=tk.LEFT, padx=5)
+        
+        date_btn = ttk.Button(date_frame, text="Now", command=self.set_current_datetime, width=5)
+        date_btn.pack(side=tk.LEFT, padx=5)
+        
+        # Temperature input
+        temp_frame = tk.Frame(input_frame, bg="#f0f0f0")
+        temp_frame.pack(fill=tk.X, pady=5)
+        
+        tk.Label(
+            temp_frame, 
+            text="Temperature (°C):", 
+            font=("Arial", 10),
+            bg="#f0f0f0"
+        ).pack(side=tk.LEFT, padx=5)
+        
+        self.temp_var = tk.DoubleVar(value=25.0)
+        temp_entry = ttk.Spinbox(
+            temp_frame,
+            from_=-50.0,
+            to=60.0,
+            increment=0.1,
+            textvariable=self.temp_var,
+            width=15
+        )
+        temp_entry.pack(side=tk.LEFT, padx=5)
+        
+        # Temperature rating
+        rating_frame = tk.Frame(input_frame, bg="#f0f0f0")
+        rating_frame.pack(fill=tk.X, pady=5)
+        
+        tk.Label(
+            rating_frame, 
+            text="Rating:", 
+            font=("Arial", 10),
+            bg="#f0f0f0"
+        ).pack(side=tk.LEFT, padx=5)
+        
+        self.rating_var = tk.StringVar(value="Normal")
+        rating_combo = ttk.Combobox(
+            rating_frame,
+            textvariable=self.rating_var,
+            values=["Very Cold", "Cold", "Normal", "Warm", "Very Hot"],
+            width=15,
+            state="readonly"
+        )
+        rating_combo.pack(side=tk.LEFT, padx=5)
+        
+        # Additional notes
+        notes_frame = tk.Frame(input_frame, bg="#f0f0f0")
+        notes_frame.pack(fill=tk.X, pady=5)
+        
+        tk.Label(
+            notes_frame, 
+            text="Notes:", 
+            font=("Arial", 10),
+            bg="#f0f0f0"
+        ).pack(side=tk.LEFT, padx=5)
+        
+        self.notes_var = tk.StringVar()
+        notes_entry = ttk.Entry(
+            notes_frame,
+            textvariable=self.notes_var,
+            width=30
+        )
+        notes_entry.pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
+        
+        # Action buttons
+        btn_frame = tk.Frame(input_frame, bg="#f0f0f0")
+        btn_frame.pack(fill=tk.X, pady=10)
+        
+        add_button = tk.Button(
+            btn_frame,
+            text="Add Reading",
+            font=("Arial", 10),
+            bg="#2ecc71",
+            fg="white",
+            padx=10,
+            command=self.add_reading
+        )
+        add_button.pack(side=tk.LEFT, padx=5, expand=True, fill=tk.X)
+        
+        clear_button = tk.Button(
+            btn_frame,
+            text="Clear Fields",
+            font=("Arial", 10),
+            bg="#95a5a6",
+            fg="white",
+            padx=10,
+            command=self.clear_input_fields
+        )
+        clear_button.pack(side=tk.LEFT, padx=5, expand=True, fill=tk.X)
+        
+        delete_button = tk.Button(
+            btn_frame,
+            text="Delete Selected",
+            font=("Arial", 10),
+            bg="#e74c3c",
+            fg="white",
+            padx=10,
+            command=self.delete_selected
+        )
+        delete_button.pack(side=tk.LEFT, padx=5, expand=True, fill=tk.X)
+    
+    def create_stats_frame(self, parent):
+        """Create statistics frame"""
+        stats_frame = tk.LabelFrame(
+            parent, 
+            text="Statistics and Analysis", 
+            font=("Arial", 12),
+            bg="#f0f0f0",
+            padx=10,
+            pady=10
+        )
+        stats_frame.pack(fill=tk.X, padx=5, pady=5)
+        
+        # Basic statistics frame
+        basic_stats = tk.Frame(stats_frame, bg="#f0f0f0")
+        basic_stats.pack(fill=tk.X, pady=5)
+        
+        # First row of statistics
+        row1 = tk.Frame(basic_stats, bg="#f0f0f0")
+        row1.pack(fill=tk.X, pady=2)
+        
+        self.avg_var = tk.StringVar(value="-- °C")
+        self.max_var = tk.StringVar(value="-- °C")
+        
+        tk.Label(
+            row1, 
+            text="Average Temperature:", 
+            font=("Arial", 10),
+            bg="#f0f0f0", 
+            width=20,
+            anchor="e"
+        ).pack(side=tk.LEFT, padx=5)
+        
+        tk.Label(
+            row1, 
+            textvariable=self.avg_var, 
+            font=("Arial", 10, "bold"),
+            bg="#f0f0f0",
+            width=10
+        ).pack(side=tk.LEFT, padx=5)
+        
+        tk.Label(
+            row1, 
+            text="Maximum:", 
+            font=("Arial", 10),
+            bg="#f0f0f0", 
+            width=10,
+            anchor="e"
+        ).pack(side=tk.LEFT, padx=5)
+        
+        tk.Label(
+            row1, 
+            textvariable=self.max_var, 
+            font=("Arial", 10, "bold"),
+            bg="#f0f0f0",
+            width=10
+        ).pack(side=tk.LEFT, padx=5)
+        
+        # Second row of statistics
+        row2 = tk.Frame(basic_stats, bg="#f0f0f0")
+        row2.pack(fill=tk.X, pady=2)
+        
+        self.min_var = tk.StringVar(value="-- °C")
+        self.std_var = tk.StringVar(value="-- °C")
+        
+        tk.Label(
+            row2, 
+            text="Minimum:", 
+            font=("Arial", 10),
+            bg="#f0f0f0", 
+            width=20,
+            anchor="e"
+        ).pack(side=tk.LEFT, padx=5)
+        
+        tk.Label(
+            row2, 
+            textvariable=self.min_var, 
+            font=("Arial", 10, "bold"),
+            bg="#f0f0f0",
+            width=10
+        ).pack(side=tk.LEFT, padx=5)
+        
+        tk.Label(
+            row2, 
+            text="Standard Deviation:", 
+            font=("Arial", 10),
+            bg="#f0f0f0", 
+            width=10,
+            anchor="e"
+        ).pack(side=tk.LEFT, padx=5)
+        
+        tk.Label(
+            row2, 
+            textvariable=self.std_var, 
+            font=("Arial", 10, "bold"),
+            bg="#f0f0f0",
+            width=10
+        ).pack(side=tk.LEFT, padx=5)
+        
+        # Prediction statistics
+        pred_stats = tk.Frame(stats_frame, bg="#f0f0f0")
+        pred_stats.pack(fill=tk.X, pady=5)
+        
+        # First row of prediction statistics
+        pred_row1 = tk.Frame(pred_stats, bg="#f0f0f0")
+        pred_row1.pack(fill=tk.X, pady=2)
+        
+        self.pred_var = tk.StringVar(value="-- °C")
+        self.r2_var = tk.StringVar(value="--")
+        
+        tk.Label(
+            pred_row1, 
+            text="Next Prediction:", 
+            font=("Arial", 10),
+            bg="#f0f0f0", 
+            width=20,
+            anchor="e"
+        ).pack(side=tk.LEFT, padx=5)
+        
+        tk.Label(
+            pred_row1, 
+            textvariable=self.pred_var, 
+            font=("Arial", 10, "bold"),
+            bg="#f0f0f0",
+            width=10
+        ).pack(side=tk.LEFT, padx=5)
+        
+        tk.Label(
+            pred_row1, 
+            text="Model Accuracy (R²):", 
+            font=("Arial", 10),
+            bg="#f0f0f0", 
+            width=10,
+            anchor="e"
+        ).pack(side=tk.LEFT, padx=5)
+        
+        tk.Label(
+            pred_row1, 
+            textvariable=self.r2_var, 
+            font=("Arial", 10, "bold"),
+            bg="#f0f0f0",
+            width=10
+        ).pack(side=tk.LEFT, padx=5)
+        
+        # Update predictions button
+        predict_button = tk.Button(
+            stats_frame,
+            text="Update Prediction",
+            font=("Arial", 10),
+            bg="#3498db",
+            fg="white",
+            padx=10,
+            command=self.update_prediction
+        )
+        predict_button.pack(fill=tk.X, padx=5, pady=10)
+    
+    def create_graph_frame(self, parent):
+        """Create graph frame"""
+        graph_frame = tk.LabelFrame(
+            parent, 
+            text="Temperature Graph", 
+            font=("Arial", 12),
+            bg="#f0f0f0"
+        )
+        graph_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        
+        # Create graph control frame
+        control_frame = tk.Frame(graph_frame, bg="#f0f0f0")
+        control_frame.pack(fill=tk.X, pady=5)
+        
+        # Filtering settings
+        tk.Label(
+            control_frame, 
+            text="Time Period:", 
+            font=("Arial", 10),
+            bg="#f0f0f0"
+        ).pack(side=tk.LEFT, padx=5)
+        
+        self.period_var = tk.StringVar(value="All")
+        period_combo = ttk.Combobox(
+            control_frame,
+            textvariable=self.period_var,
+            values=["All", "Last 7 Days", "Last 30 Days", "Last 90 Days"],
+            width=12,
+            state="readonly"
+        )
+        period_combo.pack(side=tk.LEFT, padx=5)
+        period_combo.bind("<<ComboboxSelected>>", lambda e: self.update_graph())
+        
+        tk.Label(
+            control_frame, 
+            text="Plot Type:", 
+            font=("Arial", 10),
+            bg="#f0f0f0"
+        ).pack(side=tk.LEFT, padx=5)
+        
+        self.plot_type_var = tk.StringVar(value="Line")
+        plot_type_combo = ttk.Combobox(
+            control_frame,
+            textvariable=self.plot_type_var,
+            values=["Line", "Scatter", "Bar"],
+            width=10,
+            state="readonly"
+        )
+        plot_type_combo.pack(side=tk.LEFT, padx=5)
+        plot_type_combo.bind("<<ComboboxSelected>>", lambda e: self.update_graph())
+        
+        # Create the graph
+        self.fig, self.ax = plt.subplots(figsize=(8, 5))
+        self.canvas = FigureCanvasTkAgg(self.fig, master=graph_frame)
+        self.canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+    
+    def create_predictions_frame(self, parent):
+        """Create advanced predictions frame"""
+        pred_frame = tk.LabelFrame(
+            parent, 
+            text="Future Predictions", 
+            font=("Arial", 12),
+            bg="#f0f0f0",
+            padx=10,
+            pady=10
+        )
+        pred_frame.pack(fill=tk.X, padx=5, pady=5)
+        
+        # Prediction settings
+        settings_frame = tk.Frame(pred_frame, bg="#f0f0f0")
+        settings_frame.pack(fill=tk.X, pady=5)
+        
+        tk.Label(
+            settings_frame, 
+            text="Days to Predict:", 
+            font=("Arial", 10),
+            bg="#f0f0f0"
+        ).pack(side=tk.LEFT, padx=5)
+        
+        self.days_var = tk.IntVar(value=self.app_config["prediction_days"])
+        days_spinbox = ttk.Spinbox(
+            settings_frame,
+            from_=1,
+            to=30,
+            increment=1,
+            textvariable=self.days_var,
+            width=5
+        )
+        days_spinbox.pack(side=tk.LEFT, padx=5)
+        
+        days_spinbox.bind("<<Increment>>", lambda e: self.update_extended_predictions())
+        days_spinbox.bind("<<Decrement>>", lambda e: self.update_extended_predictions())
+        days_spinbox.bind("<Return>", lambda e: self.update_extended_predictions())
+        days_spinbox.bind("<FocusOut>", lambda e: self.update_extended_predictions())
+        
+        # Future predictions table
+        pred_table_frame = tk.Frame(pred_frame, bg="#f0f0f0")
+        pred_table_frame.pack(fill=tk.BOTH, expand=True, pady=5)
+        
+        columns = ("Date", "Predicted Temperature", "Confidence")
+        self.pred_tree = ttk.Treeview(pred_table_frame, columns=columns, show="headings", height=7)
+        
+        for col in columns:
+            self.pred_tree.heading(col, text=col)
+            self.pred_tree.column(col, width=100, anchor="center")
+        
+        scrollbar = ttk.Scrollbar(pred_table_frame, orient="vertical", command=self.pred_tree.yview)
+        self.pred_tree.configure(yscrollcommand=scrollbar.set)
+        
+        self.pred_tree.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+        
+        # Update future predictions button
+        extended_pred_button = tk.Button(
+            pred_frame,
+            text="Update Future Predictions",
+            font=("Arial", 10),
+            bg="#9b59b6",
+            fg="white",
+            padx=10,
+            command=self.update_extended_predictions
+        )
+        extended_pred_button.pack(fill=tk.X, padx=5, pady=10)
+    
+    def create_data_table(self, parent):
+        """Create data table display"""
+        data_frame = tk.LabelFrame(
+            parent, 
+            text="Reading List", 
+            font=("Arial", 12),
+            bg="#f0f0f0"
+        )
+        data_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+        
+        # Create search and filter toolbar
+        tools_frame = tk.Frame(data_frame, bg="#f0f0f0")
+        tools_frame.pack(fill=tk.X, pady=5)
+        
+        tk.Label(
+            tools_frame, 
+            text="Search:", 
+            font=("Arial", 10),
+            bg="#f0f0f0"
+        ).pack(side=tk.LEFT, padx=5)
+        
+        self.search_var = tk.StringVar()
+        search_entry = ttk.Entry(
+            tools_frame,
+            textvariable=self.search_var,
+            width=20
+        )
+        search_entry.pack(side=tk.LEFT, padx=5)
+        
+        search_entry.bind("<KeyRelease>", lambda e: self.filter_data())
+        
+        tk.Label(
+            tools_frame, 
+            text="Filter by:", 
+            font=("Arial", 10),
+            bg="#f0f0f0"
+        ).pack(side=tk.LEFT, padx=5)
+        
+        self.filter_var = tk.StringVar(value="All")
+        filter_combo = ttk.Combobox(
+            tools_frame,
+            textvariable=self.filter_var,
+            values=["All", "Very Cold", "Cold", "Normal", "Warm", "Very Hot"],
+            width=10,
+            state="readonly"
+        )
+        filter_combo.pack(side=tk.LEFT, padx=5)
+        filter_combo.bind("<<ComboboxSelected>>", lambda e: self.filter_data())
+        
+        # Create data table
+        table_frame = tk.Frame(data_frame, bg="#f0f0f0")
+        table_frame.pack(fill=tk.BOTH, expand=True, pady=5)
+        
+        columns = ("Date", "Time", "Temperature", "Rating", "Notes")
+        self.tree = ttk.Treeview(table_frame, columns=columns, show="headings", height=8)
+        
+        # Set column headings and widths
+        column_widths = {
+            "Date": 100,
+            "Time": 80,
+            "Temperature": 100,
+            "Rating": 100,
+            "Notes": 200
+        }
+        
+        for col in columns:
+            self.tree.heading(col, text=col, command=lambda c=col: self.sort_treeview(self.tree, c, False))
+            self.tree.column(col, width=column_widths.get(col, 100), anchor="center")
+        
+        # Add scrollbars
+        y_scrollbar = ttk.Scrollbar(table_frame, orient="vertical", command=self.tree.yview)
+        self.tree.configure(yscrollcommand=y_scrollbar.set)
+        
+        x_scrollbar = ttk.Scrollbar(table_frame, orient="horizontal", command=self.tree.xview)
+        self.tree.configure(xscrollcommand=x_scrollbar.set)
+        
+        # Arrange components
+        self.tree.pack(side="left", fill="both", expand=True)
+        y_scrollbar.pack(side="right", fill="y")
+        x_scrollbar.pack(side="bottom", fill="x")
+        
+        # Bind selection event
+        self.tree.bind("<ButtonRelease-1>", self.on_tree_select)
+        
+    def add_reading(self):
+        """Add a new temperature reading to the data"""
+        try:
+            # Get data from input fields
+            date_str = self.date_var.get()
+            time_str = self.time_var.get()
+            temp = self.temp
